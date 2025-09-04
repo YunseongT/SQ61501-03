@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>연소와 소화 탐험 게임 (심화 학습편)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            touch-action: manipulation;
+        }
+        .game-bg {
+            background: linear-gradient(to bottom, #FFB74D, #BF360C); /* 주황색에서 어두운 빨간색으로 */
+            transition: background 1s ease;
+        }
+        .game-card, .form-card, .results-card {
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            background-color: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        .option-btn { transition: all 0.3s ease; }
+        .option-btn:hover { transform: translateY(-3px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .option-btn.correct { background-color: #2ecc71; color: white; transform: scale(1.05); }
+        .option-btn.incorrect { background-color: #e74c3c; color: white; }
+        .option-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+        .achievement-badge {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-weight: 700;
+            color: white;
+            transition: all 0.3s ease;
+        }
+        .badge-earned { background-color: #f39c12; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .badge-not-earned { background-color: #bdc3c7; }
+        #tip-modal {
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+    </style>
+</head>
+<body class="game-bg">
+
+    <!-- 시작 화면 -->
+    <div id="start-screen" class="min-h-screen w-full flex items-center justify-center p-4">
+        <div class="form-card w-full max-w-md rounded-2xl p-8 shadow-lg text-center">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">연소와 소화 탐험</h1>
+            <p class="text-gray-600 mb-6">성취기준을 확인하며 연소의 원리를 배워보세요!</p>
+            <button id="start-game-btn" class="w-full bg-orange-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-orange-700 transition-transform duration-200 hover:scale-105">
+                탐험 시작하기
+            </button>
+        </div>
+    </div>
+
+    <!-- 게임 화면 -->
+    <div id="game-screen" class="hidden min-h-screen w-full flex items-center justify-center p-4 relative">
+        <div class="game-card w-full max-w-3xl rounded-2xl p-6 md:p-8 shadow-lg text-center">
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex gap-3">
+                    <span class="text-3xl cursor-pointer" onclick="showCombustionInfo('conditions')">🔥</span>
+                    <span class="text-3xl cursor-pointer" onclick="showCombustionInfo('products')">💨</span>
+                    <span class="text-3xl cursor-pointer" onclick="showCombustionInfo('extinguish')">🧯</span>
+                    <span class="text-3xl cursor-pointer" onclick="showCombustionInfo('safety')">⚠️</span>
+                </div>
+                <div id="progress" class="font-bold text-gray-700"></div>
+                <div id="main-icon" class="text-5xl cursor-pointer transition-transform duration-300 hover:scale-110" onclick="showTip()">🌡️</div>
+            </div>
+            
+            <p id="achievement-standard" class="text-sm font-bold text-orange-600 mb-2"></p>
+            <h2 id="question" class="text-xl md:text-2xl font-bold text-gray-800 mb-6 min-h-[6rem] flex items-center justify-center"></h2>
+            <div id="options-container" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+            <p id="explanation" class="mt-4 text-gray-700 bg-orange-100 p-3 rounded-lg min-h-[5rem] flex items-center justify-center"></p>
+            <button id="next-btn" class="hidden mt-6 w-full bg-orange-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-orange-700">다음 문제</button>
+        </div>
+        <!-- 팁 모달 -->
+        <div id="tip-modal" class="hidden absolute top-0 left-0 w-full h-full bg-black bg-opacity-50 flex items-center justify-center p-4 opacity-0 -translate-y-4">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-md text-center">
+                <h3 class="text-xl font-bold mb-2">핵심 팁! 💡</h3>
+                <p id="tip-content"></p>
+                <button onclick="closeTip()" class="mt-4 bg-gray-300 px-4 py-2 rounded-lg">닫기</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 결과 화면 -->
+    <div id="results-screen" class="hidden min-h-screen w-full flex items-center justify-center p-4">
+        <div class="results-card w-full max-w-2xl rounded-2xl p-8 shadow-lg text-center">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">탐험 결과 보고서</h1>
+            <div id="achievements-container" class="space-y-4 my-6"></div>
+            <p id="result-message" class="font-bold text-xl my-4"></p>
+            <button id="restart-btn" class="w-full bg-orange-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-orange-700">처음부터 다시하기</button>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. 질문 데이터베이스 (성취기준별 구성) ---
+        const allQuestions = [
+            // [6과15-01] 물질이 탈 때 나타나는 공통적인 현상, 연소의 조건 (5문제)
+            { standard: "6-15-01", question: "물질이 타는 현상인 '연소'가 일어나기 위한 3가지 조건이 아닌 것은 무엇인가요?", options: ["탈 물질(연료)", "산소", "발화점 이상의 온도", "이산화탄소"], answer: 3, explanation: "연소의 3요소는 탈 물질, 산소, 발화점 이상의 온도입니다. 이산화탄소는 연소 후 생성되는 물질 중 하나입니다." },
+            { standard: "6-15-01", question: "타고 있는 양초를 유리병으로 덮었더니 불이 꺼졌습니다. 어떤 연소 조건이 사라졌기 때문일까요?", options: ["탈 물질", "산소 공급", "발화점 이상의 온도", "양초의 심지"], answer: 1, explanation: "유리병으로 덮으면 외부와의 공기(산소) 공급이 차단됩니다. 산소가 모두 소모되면 양초는 더 이상 탈 수 없어 불이 꺼집니다." },
+            { standard: "6-15-01", question: "물질이 타기 시작하는 최저 온도를 무엇이라고 하나요?", options: ["융점", "어는점", "발화점", "끓는점"], answer: 2, explanation: "발화점은 물질이 불꽃 없이 스스로 타기 시작하는 가장 낮은 온도입니다. 탈 물질은 발화점 이상의 온도가 되어야 연소할 수 있습니다." },
+            { standard: "6-15-01", question: "다음 중 물질이 탈 때 공통적으로 나타나는 현상으로 가장 적절한 것은 무엇인가요?", options: ["빛과 열이 발생한다", "차가운 연기가 난다", "물질의 크기가 커진다", "소리가 나지 않는다"], answer: 0, explanation: "연소는 물질이 산소와 빠르게 반응하며 많은 양의 빛과 열을 내는 현상입니다. 이것이 연소의 가장 대표적인 특징입니다." },
+            { standard: "6-15-01", question: "캠프파이어를 할 때 마른장작에 불을 붙이는 이유로 가장 옳은 것은 무엇인가요?", options: ["젖은 장작보다 구하기 쉬워서", "마른장작이 더 무거워서", "젖은 장작보다 발화점이 낮아서", "마른장작이 더 예쁘게 타서"], answer: 2, explanation: "젖은 장작은 물 때문에 온도가 잘 올라가지 않아 발화점에 도달하기 어렵습니다. 마른장작은 발화점이 낮아 쉽게 불을 붙일 수 있습니다." },
+
+            // [6과15-02] 연소 후에 생성되는 물질 (4문제)
+            { standard: "6-15-02", question: "초가 연소한 뒤 생성되는 물질을 확인하기 위해 집기병 안쪽에 푸른색 염화코발트 종이를 대었더니 붉게 변했습니다. 무엇을 확인한 것일까요?", options: ["산소", "이산화탄소", "물", "그을음"], answer: 2, explanation: "푸른색 염화코발트 종이는 물을 만나면 붉은색으로 변하는 성질이 있습니다. 이를 통해 연소 후 물이 생성되었음을 알 수 있습니다." },
+            { standard: "6-15-02", question: "초가 타고 난 집기병에 석회수를 넣고 흔들었더니 뿌옇게 흐려졌습니다. 어떤 기체가 생성되었기 때문일까요?", options: ["수소", "질소", "산소", "이산화탄소"], answer: 3, explanation: "석회수는 이산화탄소를 만나면 뿌옇게 흐려지는 성질이 있습니다. 따라서 연소 후 이산화탄소가 생성되었음을 알 수 있습니다." },
+            { standard: "6-15-02", question: "나무나 종이와 같은 물질이 완전히 연소했을 때 주로 생성되는 물질 두 가지는 무엇일까요?", options: ["산소와 질소", "물과 이산화탄소", "그을음과 재", "수소와 헬륨"], answer: 1, explanation: "연료 속의 탄소(C)는 산소와 결합해 이산화탄소(CO2)가 되고, 수소(H)는 산소와 결합해 물(H2O)이 됩니다." },
+            { standard: "6-15-02", question: "불완전 연소가 일어났을 때 발생하며, 건강에 해로운 검은색 가루 물질은 무엇인가요?", options: ["이산화탄소", "그을음(탄소 가루)", "산소", "수증기"], answer: 1, explanation: "산소가 부족한 상태에서 물질이 타면 불완전 연소가 일어나며, 타다 남은 탄소 가루인 그을음이 발생합니다." },
+
+            // [6과15-03] 소화 방법과 화재 안전 대책 (5문제)
+            { standard: "6-15-03", question: "모래나 흙을 뿌려 불을 끄는 방법은 연소의 어떤 조건을 제거하는 원리일까요?", options: ["탈 물질을 제거", "산소 공급을 차단", "발화점 미만으로 냉각", "연쇄 반응을 차단"], answer: 1, explanation: "모래나 흙으로 타는 물질을 덮으면 공기 중의 산소가 공급되는 것을 막아 불을 끄게 됩니다. 이를 '질식 소화'라고 합니다." },
+            { standard: "6-15-03", question: "산불이 더 번지는 것을 막기 위해 주변의 나무를 베어내는 것은 어떤 소화 원리를 이용한 것인가요?", options: ["탈 물질(연료)을 제거", "산소 공급을 차단", "발화점 미만으로 냉각", "물을 뿌려 약화"], answer: 0, explanation: "주변의 나무와 같은 탈 물질을 미리 없애버리면 불이 더 이상 번져나갈 연료가 없어져 자연스럽게 꺼지게 됩니다." },
+            { standard: "6-15-03", question: "다음 중 화재 발생 시 가장 먼저 해야 할 행동은 무엇인가요?", options: ["창문을 열어 연기를 내보낸다", "엘리베이터를 타고 대피한다", "'불이야!'라고 외쳐 주변에 알린다", "숨겨둔 귀중품을 챙긴다"], answer: 2, explanation: "화재 시에는 큰 소리로 외쳐 주변 사람들에게 위험을 알리고 신속하게 대피하는 것이 가장 중요합니다. 창문을 열면 산소가 공급되어 불이 더 커질 수 있습니다." },
+            { standard: "6-15-03", question: "기름에 불이 붙었을 때 물을 뿌리면 안 되는 이유는 무엇인가요?", options: ["물이 기름과 섞이지 않아서", "물이 불을 더 크게 만들기 때문에", "물이 너무 차가워서", "물이 아까워서"], answer: 1, explanation: "끓는 기름은 물보다 훨씬 뜨겁습니다. 물을 부으면 물이 급격히 끓어 수증기로 변하면서 불붙은 기름 방울을 사방으로 튀게 만들어 화재를 키웁니다." },
+            { standard: "6-15-03", question: "소화기를 사용하는 올바른 순서는 무엇인가요?", options: ["손잡이 움켜쥐기 → 안전핀 뽑기 → 바람을 등지고 분사", "안전핀 뽑기 → 노즐을 불 쪽으로 향하기 → 손잡이 움켜쥐기", "노즐을 불 쪽으로 향하기 → 안전핀 뽑기 → 손잡이 움켜쥐기", "안전핀 뽑기 → 바람을 안고 분사 → 손잡이 움켜쥐기"], answer: 1, explanation: "소화기 사용법: 1. 안전핀을 뽑는다. 2. 노즐을 불 쪽으로 향하고 바람을 등진다. 3. 손잡이를 힘껏 움켜쥐고 빗자루로 쓸듯이 골고루 분사한다." }
+        ];
+
+        // --- 2. 게임 상태 관리 변수 ---
+        let shuffledQuestions = [];
+        let currentQuestionIndex = 0;
+        const achievements = {
+            '6-15-01': { name: "연소의 조건 이해", correct: 0, total: 5, badge: false },
+            '6-15-02': { name: "연소 생성 물질 확인", correct: 0, total: 4, badge: false },
+            '6-15-03': { name: "소화와 화재 예방", correct: 0, total: 5, badge: false },
+        };
+
+        // --- 3. HTML 요소 가져오기 ---
+        const startScreen = document.getElementById('start-screen');
+        const gameScreen = document.getElementById('game-screen');
+        const resultsScreen = document.getElementById('results-screen');
+        const progressEl = document.getElementById('progress');
+        const standardEl = document.getElementById('achievement-standard');
+        const questionEl = document.getElementById('question');
+        const optionsContainer = document.getElementById('options-container');
+        const explanationEl = document.getElementById('explanation');
+        const nextBtn = document.getElementById('next-btn');
+
+        // --- 4. 게임 핵심 기능 함수 ---
+        
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function startGame() {
+            currentQuestionIndex = 0;
+            for (const key in achievements) {
+                achievements[key].correct = 0;
+                achievements[key].badge = false;
+            }
+            shuffledQuestions = shuffleArray([...allQuestions]);
+            startScreen.classList.add('hidden');
+            gameScreen.classList.remove('hidden');
+            loadQuestion();
+        }
+        
+        function loadQuestion() {
+            explanationEl.textContent = "";
+            explanationEl.classList.add('hidden');
+            nextBtn.classList.add('hidden');
+
+            const questionData = shuffledQuestions[currentQuestionIndex];
+            const standardKey = questionData.standard;
+
+            progressEl.textContent = `문제 ${currentQuestionIndex + 1} / ${shuffledQuestions.length}`;
+            standardEl.textContent = `[${achievements[standardKey].name}]`;
+            questionEl.textContent = questionData.question;
+
+            optionsContainer.innerHTML = '';
+            questionData.options.forEach((option, index) => {
+                const button = document.createElement('button');
+                button.textContent = option;
+                button.classList.add('option-btn', 'w-full', 'bg-white', 'text-gray-700', 'font-semibold', 'py-3', 'px-4', 'rounded-lg', 'shadow-md', 'border', 'border-gray-200');
+                button.onclick = () => handleOptionClick(index);
+                optionsContainer.appendChild(button);
+            });
+        }
+
+        function handleOptionClick(selectedIndex) {
+            const questionData = shuffledQuestions[currentQuestionIndex];
+            const isCorrect = (selectedIndex === questionData.answer);
+            
+            Array.from(optionsContainer.children).forEach((btn, index) => {
+                btn.disabled = true;
+                if (index === questionData.answer) {
+                    btn.classList.add('correct');
+                } else if (index === selectedIndex) {
+                    btn.classList.add('incorrect');
+                }
+            });
+
+            if (isCorrect) {
+                achievements[questionData.standard].correct++;
+            }
+            
+            explanationEl.textContent = "해설: " + questionData.explanation;
+            explanationEl.classList.remove('hidden');
+            nextBtn.classList.remove('hidden');
+
+            if (currentQuestionIndex >= shuffledQuestions.length - 1) {
+                nextBtn.textContent = '결과 확인하기';
+            }
+        }
+        
+        function nextQuestion() {
+            currentQuestionIndex++;
+            if (currentQuestionIndex < shuffledQuestions.length) {
+                loadQuestion();
+            } else {
+                showResults();
+            }
+        }
+        
+        function showResults() {
+            gameScreen.classList.add('hidden');
+            resultsScreen.classList.remove('hidden');
+            
+            const achievementsContainer = document.getElementById('achievements-container');
+            achievementsContainer.innerHTML = '';
+            let totalCorrect = 0;
+            
+            for (const key in achievements) {
+                const achievement = achievements[key];
+                const percentage = (achievement.correct / achievement.total) * 100;
+                totalCorrect += achievement.correct;
+                
+                if (percentage >= 70) {
+                    achievement.badge = true;
+                }
+
+                const resultEl = document.createElement('div');
+                resultEl.className = 'p-4 bg-gray-100 rounded-lg text-left';
+
+                let extraInfoHTML = '';
+                if (achievement.badge) {
+                    const compliments = ["불의 지배자시네요!", "연소와 소화의 달인!", "완벽한 안전 전문가!"];
+                    const compliment = compliments[Math.floor(Math.random() * compliments.length)];
+                    extraInfoHTML = `<p class="text-sm text-green-600 mt-2 font-semibold">🌟 ${compliment}</p>`;
+                } else {
+                    extraInfoHTML = `<p class="text-sm text-orange-700 mt-2">💡 <strong>학습 팁:</strong> ${tips[key]}</p>`;
+                }
+
+                resultEl.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <p class="font-bold text-gray-800">${achievement.name}</p>
+                            <p class="text-sm text-gray-600">달성도: ${achievement.correct} / ${achievement.total} (${percentage.toFixed(0)}%)</p>
+                        </div>
+                        <span class="achievement-badge ${achievement.badge ? 'badge-earned' : 'badge-not-earned'}">
+                            ${achievement.badge ? '🏅 달성' : '미달성'}
+                        </span>
+                    </div>
+                    ${extraInfoHTML}
+                `;
+                achievementsContainer.appendChild(resultEl);
+            }
+            
+            const totalPercentage = (totalCorrect / allQuestions.length) * 100;
+            const resultMessage = document.getElementById('result-message');
+            if (totalPercentage >= 80) {
+                resultMessage.textContent = "훌륭해요! 당신은 최고의 연소/소화 탐험가입니다! 🏆";
+                resultMessage.className = "font-bold text-xl my-4 text-green-600";
+            } else {
+                resultMessage.textContent = "조금 아쉽네요! 다시 도전해서 모든 배지를 모아보세요!";
+                resultMessage.className = "font-bold text-xl my-4 text-orange-500";
+            }
+        }
+        
+        // Google Sheets 연동 기능은 그대로 유지하되, 데이터 구조는 새 성취기준에 맞게 수정해야 합니다.
+        async function saveResultToSheet() {
+            const SCRIPT_URL = ''; // 여기에 배포된 스크립트 URL을 붙여넣으세요.
+            if (!SCRIPT_URL) return;
+
+            const totalScore = Object.values(achievements).reduce((sum, ach) => sum + ach.correct, 0);
+            const totalProblems = allQuestions.length;
+            const dataToSend = {
+                name: "익명",
+                totalScore,
+                totalProblems,
+                score_01: `${achievements['6-15-01'].correct}/${achievements['6-15-01'].total}`,
+                badge_01: achievements['6-15-01'].badge ? 'O' : 'X',
+                score_02: `${achievements['6-15-02'].correct}/${achievements['6-15-02'].total}`,
+                badge_02: achievements['6-15-02'].badge ? 'O' : 'X',
+                score_03: `${achievements['6-15-03'].correct}/${achievements['6-15-03'].total}`,
+                badge_03: achievements['6-15-03'].badge ? 'O' : 'X',
+            };
+            
+            try {
+                await fetch(SCRIPT_URL, {
+                    method: 'POST', mode: 'no-cors', body: JSON.stringify(dataToSend)
+                });
+            } catch (error) {
+                console.error("결과 저장 중 에러:", error);
+            }
+        }
+
+        // --- 5. 교육적 보조 기능 함수 ---
+        const tips = {
+            "6-15-01": "불이 나려면 '탈 것', '산소', '뜨거운 온도' 세 친구가 모두 모여야 해요!",
+            "6-15-02": "연료 속 탄소와 수소가 산소와 만나면 어떤 물질로 변신할까요? 실험 도구를 떠올려 보세요.",
+            "6-15-03": "불을 끄는 방법은 불이 나는 세 가지 조건 중 하나 이상을 없애는 것이랍니다. '제거, 냉각, 질식'을 기억하세요."
+        };
+        
+        function showTip() {
+            if (currentQuestionIndex >= shuffledQuestions.length) return;
+            const currentStandard = shuffledQuestions[currentQuestionIndex].standard;
+            document.getElementById('tip-content').textContent = tips[currentStandard];
+            const modal = document.getElementById('tip-modal');
+            modal.classList.remove('hidden');
+            setTimeout(() => modal.classList.remove('opacity-0', '-translate-y-4'), 10);
+        }
+
+        function closeTip() {
+            const modal = document.getElementById('tip-modal');
+            modal.classList.add('opacity-0', '-translate-y-4');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
+        function showCombustionInfo(topic) {
+            const infos = {
+                conditions: "🔥 연소 조건: 탈 물질, 산소, 발화점 이상의 온도! 이 셋 중 하나만 없어도 불은 꺼져요.",
+                products: "💨 생성 물질: 물질이 타면 주로 물과 이산화탄소가 만들어져요.",
+                extinguish: "🧯 소화 방법: 물로 온도를 낮추거나(냉각), 이산화탄소 소화기로 산소를 막거나(질식), 연료를 치워요(제거).",
+                safety: "⚠️ 화재 안전: 불이 나면 젖은 수건으로 코와 입을 막고 자세를 낮춰 대피! 엘리베이터는 절대 금물!"
+            };
+            alert(infos[topic]);
+        }
+
+        // --- 6. 이벤트 리스너 연결 ---
+        document.getElementById('start-game-btn').addEventListener('click', startGame);
+        nextBtn.addEventListener('click', nextQuestion);
+        document.getElementById('restart-btn').addEventListener('click', () => {
+            resultsScreen.classList.add('hidden');
+            startScreen.classList.remove('hidden');
+            nextBtn.textContent = '다음 문제';
+        });
+
+    </script>
+</body>
+</html>
